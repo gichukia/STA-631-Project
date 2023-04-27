@@ -1,5 +1,5 @@
 # STA-631-Project
-Comparing Multiple Linear Regression model and Decision Tree Regressor
+### Comparing Multiple Linear Regression model and Decision Tree Regressorn using Formula One Data
 
 
 
