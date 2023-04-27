@@ -1,0 +1,150 @@
+---
+title: "STA 631 Project - Data Wrangling Script"
+author: "Alex Gichuki"
+date: "2023-03-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Setup
+library(tidyverse)
+```
+
+
+```{r}
+# Get the Data
+circuits <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/circuits.csv')
+constructor_results <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/constructor_results.csv')
+constructor_standings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/constructor_standings.csv')
+constructors <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/constructors.csv')
+driver_standings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/driver_standings.csv')
+drivers <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/drivers.csv')
+lap_times <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/lap_times.csv')
+pit_stops <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/pit_stops.csv')
+qualifying <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/qualifying.csv')
+races <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/races.csv')
+results <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/results.csv')
+seasons <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/seasons.csv')
+status <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-07/status.csv')
+
+```
+
+
+DATA CLEANUP
+```{r}
+# Filter data for drivers who finished the races (statusid == 1)
+
+finished_race_results <- results %>%
+  filter(statusId == 1)
+```
+
+
+```{r}
+# Calculate the average pit stop duration for each race and driver combination
+
+pit_stops <- pit_stops %>%
+  group_by(raceId, driverId) %>%
+  mutate(`average pitstop duration` = mean(milliseconds))
+
+# Removing rows not needed
+ave_pitstops <- pit_stops %>%
+  select(-lap, -time, - milliseconds, -stop, -duration)
+
+# Select only unique combinations of raceId, driverId, and average pit stop duration
+ave_pitstops_unique <- ave_pitstops %>%
+  distinct(raceId, driverId, `average pitstop duration`, .keep_all = TRUE)
+```
+
+
+```{r}
+# Calculate the average lap duration for each race and driver combination
+ave_laptimes <- lap_times %>%
+  group_by(raceId, driverId) %>%
+  mutate(`average lap duration` = mean(milliseconds))
+
+# Removing rows not needed
+ave_laptimes <- ave_laptimes %>%
+  select(-lap, -time, - milliseconds, -position)
+
+# Select only unique combinations of raceId, driverId, and average lap duration
+ave_laptimes_unique <- ave_laptimes %>%
+  distinct(raceId, driverId, `average lap duration`, .keep_all = TRUE)
+```
+
+
+```{r}
+# Extracting starting position from the qualifying dataset
+# Select the raceId, driverId, and position columns from the qualifying dataset
+qualifying_positions_df <- qualifying %>%
+  select(raceId, driverId, position)
+
+# Join the qualifying positions to the finished_race_results dataset based on raceId and driverId
+joined_data <- left_join(finished_race_results, qualifying_positions_df, by = c("raceId", "driverId"))
+
+# Rename columns
+joined_results_df <- joined_data %>%
+  rename(`starting position` = position.y,
+         `finishing position` = position.x)
+
+```
+
+Cleaning to come upm with a Final complete dataset
+```{r}
+# joining circuit to race to get circuit altitude details 
+race_details <- left_join(races, circuits, by = "circuitId")
+
+# joining race_details to joined_results df 
+joined_results_df1 <- left_join(joined_results_df, race_details, by = "raceId")
+
+# dropping columns not needed in the joined data set
+joined_results_df1 <- joined_results_df1 %>%
+select(resultId, raceId, driverId, circuitId, grid, `finishing position`, points, laps, milliseconds,
+       rank, fastestLapTime, fastestLapSpeed, alt)
+
+# Merging the resulting data set with ave_pitstops_unique to get ave pitstop time
+joined_results_df2 <- left_join(joined_results_df1, ave_pitstops_unique, by = c("raceId", "driverId"))
+
+# Merging the resulting data set with ave_laptimes_unique to get ave pitstop time
+joined_results_df3 <- left_join(joined_results_df2, ave_laptimes_unique, by = c("raceId", "driverId"))
+
+# retaining values with no missing values only
+no_na <- joined_results_df3 %>%
+  filter(complete.cases(.))
+
+
+# Transform fastest lap time to milliseconds 
+finalDF <- no_na %>%
+  mutate(fastesLapMilliseconds = sapply(strsplit(fastestLapTime, "[:.]"), function(x) {
+    as.numeric(x[1]) * 60 * 1000 + as.numeric(x[2]) * 1000 + as.numeric(x[3])
+  })) %>%
+  filter(complete.cases(.)) %>%
+  select(-fastestLapTime)
+```
+
+
+```{r}
+# Rename final dataset columns for readability and remove unwanted column
+
+clean_F1 <- finalDF %>%
+  rename(finishingPosition = `finishing position`,
+         raceDuration = milliseconds,
+         altitude = alt,
+         averagePitstopDuration = `average pitstop duration`,
+         averageLapDuration = `average lap duration`,
+         fastestLapDuration = fastesLapMilliseconds) %>%
+  select(-resultId)
+
+```
+
+
+Saving the clean Dataset
+```{r}
+write.csv(clean_F1, "Formula_One.csv", row.names = FALSE)
+
+```
+
