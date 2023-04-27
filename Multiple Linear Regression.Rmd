@@ -1,0 +1,273 @@
+---
+title: "Fitting a Multiple Linear Model in F1 data to predict Fastest Lap Speed."
+author: "Alex Gichuki"
+date: "2023-04-08"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+# Setup
+
+library(tidyverse)
+library(tidymodels)
+library(kableExtra)
+library(psych)
+library(GGally)
+library(ggfortify)
+library(car)
+```
+
+Reading the clean F1 data. Working with data from race 841 to race 1046 for all drivers who completed the race.
+```{r, message=FALSE}
+# Reading the full data
+f1_full_df <- read.csv("Formula_One.csv")
+
+# Creating a subset data set: removing driverId from the f1_full_df
+f1_df <- f1_full_df %>%
+  select(-driverId)
+
+# Glance at the dataset
+kable(head(f1_df))
+```
+
+Specifying the categorical variables
+```{r, message=FALSE}
+# Convert the following variables to categorical variables using as.factor()
+f1_df$raceId <- as.factor(f1_df$raceId)
+f1_df$circuitId <- as.factor(f1_df$circuitId)
+f1_df$grid <- as.factor(f1_df$grid)
+f1_df$finishingPosition <- as.factor(f1_df$finishingPosition)
+f1_df$rank <- as.factor(f1_df$rank)
+
+
+```
+
+
+
+Evaluating the data before fitting the model
+```{r, message=FALSE}
+kable(summary(f1_df))
+```
+
+
+Creating a Scatter plot Matrix to evaluate correlations
+```{r, message=FALSE}
+pairs.panels(
+  f1_df,
+  hist.col = "blue",
+  method= "pearson",
+  density = TRUE,
+  ellipses = TRUE
+)
+```
+
+```{r, message=FALSE}
+# Creating a list with continous variables to evaluate correlations
+cont_vars <- c("points", "laps", "raceDuration", "fastestLapSpeed", "altitude",
+               "averagePitstopDuration", "averageLapDuration", "fastestLapDuration")
+
+# Create scatterplot matrix using ggpairs for continuous variables
+ggpairs(data = f1_df[, cont_vars])
+
+```
+
+
+#**Fitting a Multiple Linear Regression Model**
+
+model1 = Using all variables
+```{r, message=FALSE}
+# Fitting a linear model in all variables to predict Fastest Lap Speed
+model1 <- lm(fastestLapSpeed ~ raceId + circuitId + grid + finishingPosition +
+                  points + laps + raceDuration + rank + altitude + fastestLapDuration +
+               averageLapDuration + averagePitstopDuration, data = f1_df)
+
+tidy(model1)
+
+```
+
+Model 1 Summary statistics
+```{r, message=FALSE}
+glance(model1)
+```
+
+The r squared is very high which could suggest over fitting. Additionally the resulting model is very complex due to the categorical variables in the data with many levels. A simpler  model would be better.
+
+Fitting model 2:
+Removing one variable from each variable pair with high correlation. Here I remove averagePitstopDuration and averageLapDuration 
+
+```{r, message=FALSE}
+model2 <- lm(fastestLapSpeed ~ raceId + circuitId + grid + finishingPosition +
+                  points + laps + raceDuration + rank + altitude + fastestLapDuration, 
+                data = f1_df)
+
+tidy(model2)
+```
+
+```{r, message=FALSE}
+glance(model2)
+```
+This model reduces the r squared by a little bit. But the model is still complex.
+
+
+Fitting Model 3: 
+How about removing race id
+
+```{r, message=FALSE}
+# Fitting a linear model in all variables except race id to predict Fastest Lap Speed
+model3 <- lm(fastestLapSpeed ~ circuitId + grid + finishingPosition +
+                  points + laps + raceDuration + rank + altitude + fastestLapDuration +
+               averageLapDuration + averagePitstopDuration, data = f1_df)
+
+tidy(model3)
+```
+```{r, message=FALSE}
+glance(model3)
+```
+Has high R squared but still the model is complex to interpret.
+
+Fitting model 4:
+Fitting a model without specifying race Id and circuit Id
+```{r, message=FALSE}
+# Fitting a linear model without specifying race Id and Circuit ID to predict Fastest Lap Speed
+model4 <- lm(fastestLapSpeed ~ grid + finishingPosition +
+                  points + laps + raceDuration + rank + altitude + fastestLapDuration +
+               averageLapDuration + averagePitstopDuration, data = f1_df)
+
+tidy(model4)
+```
+
+```{r, message=FALSE}
+glance(model4)
+```
+The resulting model has a significantly lower R squared than the previous 3 models, and is lesser complex 3 models. But we could do better.
+
+
+
+
+Fitting model 5:
+Fitting a model that does not include any of the categorical variables: That is a model that does not include raceId, circuit Id, grid, finishingPosition, and rank.  
+```{r, message=FALSE}
+# Fitting a linear model without any of the categorical variables predict Fastest Lap Speed
+model5 <- lm(fastestLapSpeed ~ points + laps + raceDuration +  altitude + fastestLapDuration +
+               averageLapDuration + averagePitstopDuration, data = f1_df)
+
+tidy(model5)
+```
+
+```{r, message=FALSE}
+glance(model5)
+```
+Model 5 does not include any categorical variables. The resulting structure is simple and easy to interpret and the R squared is high too at 0.9129958. This could be a good candidate for a final model. It explains 91.30% variation in fastestLapSpeed. 
+
+
+```{r, message = FALSE}
+autoplot(model5)
+```
+No vedidence of Normality assumption being violated. 
+## Testing Multicolinearity
+
+Checking multicolinearlity
+```{r, message=FALSE}
+vif(model5)
+```
+
+averageLapDuration, laps, and raceDuration have very high multi-colinearity since the VIF values are higher than 10. Creating a model without this variables. This indicates that the assumption of multicolinearlity is violated by these three variables,
+
+
+
+Fitting model 6:
+A model that does not include variables with high mutlicolinearity from model 5.
+```{r, message=FALSE}
+# Fitting a linear model without any of the categorical variables predict Fastest Lap Speed
+model6 <- lm(fastestLapSpeed ~ points + altitude + fastestLapDuration + averagePitstopDuration,
+             data = f1_df)
+
+tidy(model6)
+```
+
+```{r, message=FALSE}
+glance(model6)
+```
+
+```{r, message=FALSE}
+vif(model6)
+```
+
+The resulting model has a very very low R squared, which suggests that the removed variables make significant contributions to the model.
+I now consider re-introducing the removed variables with high VIF, one by one.
+
+
+Fitting Model 7:
+Since the model has a very low r squared, I return "laps" variable and evaluate the resulting model
+```{r, message=FALSE}
+# Fitting a linear model 
+model7 <- lm(fastestLapSpeed ~ points + laps + altitude + fastestLapDuration + averagePitstopDuration,
+             data = f1_df)
+
+tidy(model7)
+```
+
+```{r, message=FALSE}
+glance(model7)
+```
+
+The r squared is high again, suggesting that laps is indeed an important variable.
+
+```{r, message=FALSE}
+autoplot(model7)
+```
+
+The residual plots look good and QQ plots look fairly good and there is no strong evidence that the assumptions of normality and linearlity are violated.
+
+
+```{r, message=FALSE}
+vif(model7)
+```
+
+The VIF values are less than 10, so this looks good.
+
+
+Fitting Model 8:
+How about re-introducing averageLapDuration or raceDuration to see if the resulting model fits well, and if the VIF values are acceptable?
+
+```{r, message=FALSE}
+# Fitting a linear model 
+# reintroducing averageLapDuration
+model8 <- lm(fastestLapSpeed ~ points + laps + altitude + fastestLapDuration + averagePitstopDuration + averageLapDuration,
+             data = f1_df)
+
+tidy(model8)
+```
+```{r, message=FALSE}
+glance(model8)
+```
+The r squared is significantly high at 0.9108155.
+
+```{r, message=FALSE}
+vif(model8)
+```
+
+VIF values are all less than 10 which is strong evidence that multicolinearity assumption is not violated.
+
+
+```{r, message=FALSE}
+autoplot(model8)
+```
+
+From the plot above, linearity seems to hold reasonably well in the Residual vs Fitted plot, since the blue solid line closely follows the dashes line. Also, from the QQ plot, the data is normal distributed since most of the data points lie close the dashed line.
+
+
+I settle on model 8 as the best model to predict "fastestLapSpeed". 
+The final model from this analysis shows that "fastestLapSpeed" can be predicted using "points", "lap", "altitude", "fastestLapDuration", "averagePitstopDuration" and "averageLapDuration". The resuylting model has an r squared value of 0.9108155	which is significantly highy, showing that there is a strong relationship between the response variable with the predictor variables. The model can explain 91.08% of the variation in "fastestLapSpeed" using the 6 predictor variables. 
+ 
